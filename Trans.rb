@@ -149,7 +149,117 @@ module Trans
 		def self.m2d(dist,arr=nil) action("Apiglio Trans: 水平面随机平移",arr){|e|movement2D(e,dist)} end
 		def self.m3d(dist,arr=nil) action("Apiglio Trans: 三维随机平移",arr){|e|movement3D(e,dist)} end
 		def self.sca(range,arr=nil) action("Apiglio Trans: 随机等比例缩放",arr){|e|scaling(e,range)} end
-				
+		
+		module MoranScatter
+			require 'matrix'
+			def self.distance(p1, p2)
+				Math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+			end
+			def self.morans_i(points, bbox_width, bbox_height)
+				n = points.size
+				return 0.0 if n <= 1
+				mean = points.map { |p| p[2] }.sum / n.to_f                 # 计算均值
+				variance = points.map { |p| (p[2] - mean)**2 }.sum / n.to_f # 计算方差
+				return 0.0 if variance.zero?
+				# 计算空间权重矩阵（基于距离倒数）
+				weights = Array.new(n) { Array.new(n, 0.0) }
+				sum_weights = 0.0
+				(0...n).each do |i|
+					(0...n).each do |j|
+						next if i == j
+						d = self.distance(points[i], points[j])
+						weights[i][j] = 1.0 / (d + 1e-6)  # 避免除零
+						sum_weights += weights[i][j]
+					end
+				end
+				numerator = 0.0
+				(0...n).each do |i|
+					(0...n).each do |j|
+						next if i == j
+						numerator += weights[i][j] * (points[i][2] - mean) * (points[j][2] - mean)
+					end
+				end
+				moran_i = (n / sum_weights) * (numerator / (n * variance))
+				moran_i
+			end
+			def self.enforce_min_spacing(points, min_spacing)
+				new_points = points.dup
+				n = new_points.size
+				(0...n).each do |i|
+					(i+1...n).each do |j|
+						d = self.distance(new_points[i], new_points[j])
+						next if d >= min_spacing
+						# 移动点i和点j以增加间距
+						dx = new_points[j][0] - new_points[i][0]
+						dy = new_points[j][1] - new_points[i][1]
+						angle = Math.atan2(dy, dx)
+						move_dist = (min_spacing - d) / 2.0
+						# 更新坐标（避免越界）
+						new_points[i][0] -= move_dist * Math.cos(angle)
+						new_points[i][1] -= move_dist * Math.sin(angle)
+						new_points[j][0] += move_dist * Math.cos(angle)
+						new_points[j][1] += move_dist * Math.sin(angle)
+						# 限制在边界内（假设边界为[0,1]x[0,1]）
+						new_points[i][0] = [0.0, [1.0, new_points[i][0]].min].max
+						new_points[i][1] = [0.0, [1.0, new_points[i][1]].min].max
+						new_points[j][0] = [0.0, [1.0, new_points[j][0]].min].max
+						new_points[j][1] = [0.0, [1.0, new_points[j][1]].min].max
+					end
+				end
+				new_points
+			end
+			def self.generate_points(target_moran_i, density, min_spacing, max_iter=1000, tolerance=0.01)
+				# 初始化参数
+				bbox_width = 1.0  # 假设空间范围为[0,1]x[0,1]
+				bbox_height = 1.0
+				n_points = (density * bbox_width * bbox_height).to_i
+				points = []
+				# 初始随机分布（假设属性值为随机数）
+				n_points.times do
+					x = rand
+					y = rand
+					value = rand  # 假设属性值（用于计算莫兰指数）
+					points << [x, y, value]
+				end
+				# 迭代优化
+				max_iter.times do |iter|
+					current_moran_i = self.morans_i(points, bbox_width, bbox_height) # 检查是否收敛
+					break if (current_moran_i - target_moran_i).abs < tolerance # 调整点分布（简化版：根据莫兰指数差异移动点）
+					points.each do |point|
+					if current_moran_i < target_moran_i
+						# 需要更聚集，随机选择一个邻近点向中心移动
+						point[0] += (0.5 - point[0]) * 0.1
+						point[1] += (0.5 - point[1]) * 0.1
+					else
+						# 需要更离散，随机远离中心
+						point[0] += (point[0] - 0.5) * 0.1
+						point[1] += (point[1] - 0.5) * 0.1
+					end
+						# 限制在边界内
+						point[0] = [0.0, [1.0, point[0]].min].max
+						point[1] = [0.0, [1.0, point[1]].min].max
+					end
+					# 强制最小间距约束
+					points = self.enforce_min_spacing(points, min_spacing)
+				end
+				points.map { |p| [p[0], p[1]] }
+			end
+			private_class_method :distance, :morans_i, :enforce_min_spacing, :generate_points
+			def self.place_instances_on_ground(component_defintion, trans, target_moran_i, density, min_spacing, max_iter=1000, tolerance=0.01)
+				points = self.generate_points(target_moran_i, density, min_spacing, max_iter, tolerance)
+				points.each{|point|
+					Sketchup.active_model.entities.add_instance(component_defintion, trans*Geom::Transformation.translation(point+[0]))
+				}
+			end
+			# 调用示例
+			# target_moran_i = 0.3  # 目标莫兰指数
+			# density = 20          # 点密度（点数/单位面积）
+			# min_spacing = 0.05    # 最小间距
+			# points = generate_points(target_moran_i, density, min_spacing)
+			# puts "Generated points:"
+			# points.each { |p| puts "(#{p[0].round(3)}, #{p[1].round(3)})" }
+		end
+		
 	end
 	
 	module Curve

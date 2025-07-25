@@ -13,6 +13,27 @@ module Cam
 	def self.vactive
 		Sketchup.active_model.active_view.zoom Sketchup.active_model.active_entities
 	end
+	def self.vhash
+		cam = Sketchup.active_model.active_view.camera
+		{
+			:eye          => cam.eye.to_a,
+			:target       => cam.target.to_a,
+			:up           => cam.up.to_a,
+			:perspective  => cam.perspective?,
+			:height       => cam.perspective? ? nil : cam.height,
+			:description  => cam.description,
+			:aspect_ratio => cam.aspect_ratio,
+			:fov          => cam.perspective? ? cam.fov : nil,
+			:focal_length => cam.perspective? ? cam.focal_length : nil,
+			:image_width  => cam.perspective? ? cam.image_width : nil
+		}
+	end
+	def self.vapply(camera_hash)
+		cam = Sketchup::Camera.new(camera_hash[:eye], camera_hash[:target], camera_hash[:up])
+		cam.perspective = camera_hash[:perspective]
+		cam.height = camera_hash[:height] unless cam.perspective?
+		Sketchup.active_model.active_view.camera = cam
+	end
 	class << self
 		alias vw vworld
 		alias vs vsel

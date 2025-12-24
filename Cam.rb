@@ -4,6 +4,12 @@
 
 module Cam
 	
+	def self.cam
+		Sketchup.active_model.active_view.camera
+	end
+	def self.pages
+		Sketchup.active_model.pages
+	end
 	def self.vworld
 		Sketchup.active_model.active_view.zoom_extents
 	end
@@ -29,9 +35,11 @@ module Cam
 		}
 	end
 	def self.vapply(camera_hash)
-		cam = Sketchup::Camera.new(camera_hash[:eye], camera_hash[:target], camera_hash[:up])
-		cam.perspective = camera_hash[:perspective]
-		cam.height = camera_hash[:height] unless cam.perspective?
+		perspective = camera_hash[:perspective]
+		cam = Sketchup::Camera.new(camera_hash[:eye], camera_hash[:target], camera_hash[:up], perspective, camera_hash[:fov])
+		if not perspective then
+			cam.height = camera_hash[:height]
+		end
 		Sketchup.active_model.active_view.camera = cam
 	end
 	class << self
